@@ -13,7 +13,7 @@ During the audit, progress is printed to the terminal:
 
 ```text
 vm-audit 0.1.0 starting read-only audit.
-Report directory: vm-audit-report
+Report directory: /home/admin/vm-audit-report
 [1/14] Collecting system information...
 [1/14] Collecting system information complete.
 [2/14] Scanning listening ports...
@@ -26,6 +26,20 @@ vm-audit-report/
 ├── report.md
 ├── report.html
 └── raw/
+```
+
+By default, `vm-audit-report` is created in the directory where you run `sudo vm-audit`. The final lines print the exact absolute paths:
+
+```text
+Report written to /home/admin/vm-audit-report/report.md
+HTML report written to /home/admin/vm-audit-report/report.html
+Raw files written to /home/admin/vm-audit-report/raw
+```
+
+To choose a fixed location:
+
+```bash
+sudo vm-audit --output /tmp/vm-audit-report
 ```
 
 ## Supported Systems

@@ -7,6 +7,7 @@ RAW_DIR="$REPORT_DIR/raw"
 MD="$REPORT_DIR/report.md"
 HTML="$REPORT_DIR/report.html"
 RISK_ITEMS="$RAW_DIR/risks.tsv"
+REPORT_ABS_DIR=""
 
 umask 077
 
@@ -42,6 +43,13 @@ run_step() {
 
 have() {
   command -v "$1" >/dev/null 2>&1
+}
+
+absolute_report_dir() {
+  case "$REPORT_DIR" in
+    /*) printf '%s\n' "$REPORT_DIR" ;;
+    *) printf '%s/%s\n' "$(pwd -P)" "$REPORT_DIR" ;;
+  esac
 }
 
 run_raw() {
@@ -107,6 +115,7 @@ init_report() {
       exit 2
       ;;
   esac
+  REPORT_ABS_DIR="$(absolute_report_dir)"
   rm -rf "$REPORT_DIR"
   mkdir -p "$RAW_DIR"
   : >"$RISK_ITEMS"
@@ -411,6 +420,12 @@ EOF
   } >"$HTML"
 }
 
+finalize_report_permissions() {
+  if [ "$(id -u 2>/dev/null)" = "0" ] && [ -n "${SUDO_UID:-}" ] && [ -n "${SUDO_GID:-}" ] && have chown; then
+    chown -R "$SUDO_UID:$SUDO_GID" "$REPORT_DIR" 2>/dev/null || true
+  fi
+}
+
 main() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -422,6 +437,7 @@ main() {
         MD="$REPORT_DIR/report.md"
         HTML="$REPORT_DIR/report.html"
         RISK_ITEMS="$RAW_DIR/risks.tsv"
+        REPORT_ABS_DIR=""
         ;;
       --version|-v)
         say "vm-audit $VERSION"
@@ -444,8 +460,8 @@ main() {
   done
 
   progress "vm-audit $VERSION starting read-only audit."
-  progress "Report directory: $REPORT_DIR"
   init_report
+  progress "Report directory: $REPORT_ABS_DIR"
   run_step 1 14 "Collecting system information" audit_system
   run_step 2 14 "Scanning listening ports" audit_ports
   run_step 3 14 "Collecting Docker inventory" audit_docker
@@ -464,8 +480,10 @@ main() {
   write_risks
   write_checklist
   write_html
-  say "Report written to $REPORT_DIR/report.md"
-  say "HTML report written to $REPORT_DIR/report.html"
+  finalize_report_permissions
+  say "Report written to $REPORT_ABS_DIR/report.md"
+  say "HTML report written to $REPORT_ABS_DIR/report.html"
+  say "Raw files written to $REPORT_ABS_DIR/raw"
 }
 
 main "$@"
