@@ -12,7 +12,7 @@ sudo vm-audit
 During the audit, progress is printed to the terminal:
 
 ```text
-vm-audit 0.1.0 starting read-only audit.
+vm-audit 0.1.1 starting read-only audit.
 Report directory: /home/admin/vm-audit-report
 [1/14] Collecting system information...
 [1/14] Collecting system information complete.
@@ -40,6 +40,20 @@ To choose a fixed location:
 
 ```bash
 sudo vm-audit --output /tmp/vm-audit-report
+```
+
+If an older version created a root-owned report that your normal user cannot read, fix the existing report with:
+
+```bash
+sudo chown -R "$USER:$USER" ~/vm-audit-report
+chmod -R u+rwX,go-rwx ~/vm-audit-report
+```
+
+Then update `vm-audit`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/souraizuni/vm-audit/main/install.sh | sudo bash
+vm-audit --version
 ```
 
 ## Supported Systems

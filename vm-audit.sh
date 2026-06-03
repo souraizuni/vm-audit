@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
-VERSION="0.1.0"
+VERSION="0.1.1"
 REPORT_DIR="${VM_AUDIT_REPORT_DIR:-vm-audit-report}"
 RAW_DIR="$REPORT_DIR/raw"
 MD="$REPORT_DIR/report.md"
