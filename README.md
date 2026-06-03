@@ -9,6 +9,16 @@ curl -fsSL https://raw.githubusercontent.com/souraizuni/vm-audit/main/install.sh
 sudo vm-audit
 ```
 
+During the audit, progress is printed to the terminal:
+
+```text
+vm-audit 0.1.0 starting read-only audit.
+Report directory: vm-audit-report
+[1/14] Collecting system information...
+[1/14] Collecting system information complete.
+[2/14] Scanning listening ports...
+```
+
 The report is written to:
 
 ```text

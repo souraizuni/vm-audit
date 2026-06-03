@@ -26,6 +26,20 @@ say() {
   printf '%s\n' "$*"
 }
 
+progress() {
+  printf '%s\n' "$*" >&2
+}
+
+run_step() {
+  step_no="$1"
+  step_total="$2"
+  step_label="$3"
+  shift 3
+  progress "[$step_no/$step_total] $step_label..."
+  "$@"
+  progress "[$step_no/$step_total] $step_label complete."
+}
+
 have() {
   command -v "$1" >/dev/null 2>&1
 }
@@ -429,21 +443,24 @@ main() {
     shift
   done
 
+  progress "vm-audit $VERSION starting read-only audit."
+  progress "Report directory: $REPORT_DIR"
   init_report
-  audit_system
-  audit_ports
-  audit_docker
-  audit_php_sites
-  audit_php_config
-  audit_callbacks
-  audit_apache
-  audit_nginx
-  audit_ssl
-  audit_logs
-  audit_cron
-  audit_systemd
-  audit_firewall
-  audit_special_services
+  run_step 1 14 "Collecting system information" audit_system
+  run_step 2 14 "Scanning listening ports" audit_ports
+  run_step 3 14 "Collecting Docker inventory" audit_docker
+  run_step 4 14 "Scanning PHP websites" audit_php_sites
+  run_step 5 14 "Scanning PHP configuration" audit_php_config
+  run_step 6 14 "Scanning URLs and callbacks" audit_callbacks
+  run_step 7 14 "Collecting Apache configuration" audit_apache
+  run_step 8 14 "Collecting Nginx configuration" audit_nginx
+  run_step 9 14 "Collecting SSL certificates" audit_ssl
+  run_step 10 14 "Analyzing access logs" audit_logs
+  run_step 11 14 "Collecting cron jobs" audit_cron
+  run_step 12 14 "Collecting systemd services" audit_systemd
+  run_step 13 14 "Collecting firewall rules" audit_firewall
+  run_step 14 14 "Detecting special services" audit_special_services
+  progress "Writing risk scoring and checklist..."
   write_risks
   write_checklist
   write_html
