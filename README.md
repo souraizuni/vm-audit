@@ -12,7 +12,7 @@ sudo vm-audit
 During the audit, progress is printed to the terminal:
 
 ```text
-vm-audit 0.1.1 starting read-only audit.
+vm-audit 0.1.2 starting read-only audit.
 Report directory: /home/admin/vm-audit-report
 [1/14] Collecting system information...
 [1/14] Collecting system information complete.
@@ -27,6 +27,16 @@ vm-audit-report/
 ├── report.html
 └── raw/
 ```
+
+The top of `report.md` and `report.html` contains an Executive Summary with:
+
+- shutdown verdict
+- key counts
+- public entry points
+- shutdown blockers
+- suggested next actions
+
+Detailed command output remains below the summary for verification.
 
 By default, `vm-audit-report` is created in the directory where you run `sudo vm-audit`. The final lines print the exact absolute paths:
 
@@ -67,13 +77,14 @@ vm-audit --version
 
 ## Features
 
+- Executive Summary for shutdown decisions
 - System inventory: hostname, kernel, OS release, IP addresses, routes
 - Listening port scan using `ss -tulpn` or `netstat -tulpn`
-- Public bind detection for `0.0.0.0`, `[::]`, and `:::`
+- Public bind detection from the local listening address for `0.0.0.0`, `[::]`, `:::`, and `*`
 - Docker inventory: containers, networks, volumes, compose files
 - PHP website inventory under `/var/www`, `/srv`, and `/home`
 - PHP config scan for MySQL, MariaDB, PostgreSQL, Redis, and MongoDB
-- URL, webhook, and callback scan with basic secret masking
+- URL, webhook, and callback scan with basic secret masking and vendor-directory noise filtering
 - Apache virtual host inventory
 - Nginx config summary for `server_name`, `listen`, `root`, `proxy_pass`, and `fastcgi_pass`
 - Certbot certificate summary

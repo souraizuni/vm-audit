@@ -13,6 +13,7 @@ vm-audit-report/
 
 The Markdown report is optimized for GitHub. It includes:
 
+- Executive Summary with shutdown verdict, key counts, public entry points, blockers, and next actions
 - System information
 - Listening ports and potential public services
 - Docker inventory
@@ -42,3 +43,7 @@ The `raw/` directory stores command output and intermediate scan files. Use it w
 - `HIGH`: Public listeners, database dependencies, GitLab, or scheduled jobs that may block shutdown.
 
 Risk scoring is heuristic. Treat it as a triage aid, not as proof that a VM is safe to delete.
+
+## Reading Order
+
+Start with the Executive Summary. Use the detailed sections below it as evidence when deciding whether each blocker has been migrated, backed up, or intentionally ignored.

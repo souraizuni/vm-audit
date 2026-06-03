@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
-VERSION="0.1.1"
+VERSION="0.1.2"
 REPORT_DIR="${VM_AUDIT_REPORT_DIR:-vm-audit-report}"
 RAW_DIR="$REPORT_DIR/raw"
 MD="$REPORT_DIR/report.md"
@@ -129,6 +129,8 @@ init_report() {
 ## Security Notice
 
 This report was produced by a read-only audit. The tool does not modify firewall rules, DNS, services, or application files.
+
+__VM_AUDIT_SUMMARY__
 EOF
 }
 
@@ -162,7 +164,19 @@ audit_ports() {
   else
     write_raw_text ports "ss and netstat not found"
   fi
-  grep -E '(^|[[:space:]])(0\.0\.0\.0|\[::\]|:::)' "$out" >"$RAW_DIR/public-ports.txt" 2>/dev/null || true
+  awk '
+    $1 ~ /^(tcp|udp)/ {
+      local = ""
+      if ($2 ~ /^(LISTEN|UNCONN)$/) {
+        local = $5
+      } else {
+        local = $4
+      }
+      if (local ~ /^(0\.0\.0\.0|:::|\[::\]|\*):/) {
+        print
+      }
+    }
+  ' "$out" >"$RAW_DIR/public-ports.txt" 2>/dev/null || true
   grep -Ei '(127\.0\.0\.1|\[::1\]).*redis|redis.*(127\.0\.0\.1|\[::1\])' "$out" >"$RAW_DIR/local-redis.txt" 2>/dev/null || true
   while IFS= read -r line; do
     [ -n "$line" ] && add_risk "HIGH" "Public listening service" "$line"
@@ -240,6 +254,7 @@ audit_callbacks() {
   : >"$RAW_DIR/urls-callbacks.txt"
   if [ -n "$roots" ]; then
     find $roots -type f \( -name '*.php' -o -name '*.js' -o -name '*.json' -o -name '*.env' -o -name '*.yml' -o -name '*.yaml' -o -name '*.conf' -o -name '*.ini' \) -size -2M -print 2>/dev/null |
+      grep -Ev '/(vendor|node_modules|\.git|\.cache|storage|logs?)/' |
       while IFS= read -r f; do
         grep -EHi 'https?://|webhook|callback|discord|telegram|slack|line' "$f" 2>/dev/null | mask_sensitive
       done >"$RAW_DIR/urls-callbacks.txt"
@@ -364,6 +379,94 @@ audit_special_services() {
   append_section "GitLab, Minecraft, and Monitoring" "$RAW_DIR/special-services.txt"
 }
 
+count_lines() {
+  file="$1"
+  if [ -s "$file" ]; then wc -l <"$file" | awk '{print $1}'; else printf '0\n'; fi
+}
+
+extract_value() {
+  label="$1"
+  file="$2"
+  grep -E "^$label:" "$file" 2>/dev/null | head -n 1 | sed "s/^$label:[[:space:]]*//"
+}
+
+write_summary() {
+  summary="$RAW_DIR/executive-summary.md"
+  high_count="$(awk -F '\t' '$1 == "HIGH" {c++} END {print c+0}' "$RISK_ITEMS" 2>/dev/null)"
+  medium_count="$(awk -F '\t' '$1 == "MEDIUM" {c++} END {print c+0}' "$RISK_ITEMS" 2>/dev/null)"
+  public_count="$(count_lines "$RAW_DIR/public-ports.txt")"
+  php_sites="$(extract_value "Website-like directories" "$RAW_DIR/php-sites.txt")"
+  php_files="$(extract_value "PHP files" "$RAW_DIR/php-sites.txt")"
+  docker_running="0"
+  if [ -s "$RAW_DIR/docker-ps.txt" ]; then
+    docker_running="$(awk 'NR > 3 && $1 != "" {c++} END {print c+0}' "$RAW_DIR/docker-ps.txt")"
+  fi
+
+  if [ "$high_count" -gt 0 ] 2>/dev/null; then
+    verdict="Not ready for shutdown"
+    reason="High-risk findings need owner review first."
+  elif [ "$medium_count" -gt 0 ] 2>/dev/null; then
+    verdict="Needs review before shutdown"
+    reason="No high-risk finding was detected, but service dependencies or recent activity exist."
+  else
+    verdict="Likely safe after final owner confirmation"
+    reason="No obvious blockers were detected from available read-only checks."
+  fi
+
+  {
+    printf '\n## Executive Summary\n\n'
+    printf '**Verdict:** %s\n\n' "$verdict"
+    printf '%s\n\n' "$reason"
+    printf '### Key Findings\n\n'
+    printf '| Area | Result |\n'
+    printf '| --- | --- |\n'
+    printf '| Public listeners | %s |\n' "$public_count"
+    printf '| Docker running containers | %s |\n' "$docker_running"
+    printf '| PHP website-like directories | %s |\n' "${php_sites:-0}"
+    printf '| PHP files | %s |\n' "${php_files:-0}"
+    printf '| High risks | %s |\n' "$high_count"
+    printf '| Medium risks | %s |\n\n' "$medium_count"
+
+    printf '### Public Entry Points\n\n'
+    if [ -s "$RAW_DIR/public-ports.txt" ]; then
+      printf '```text\n'
+      awk '{print}' "$RAW_DIR/public-ports.txt" | head -n 20
+      printf '```\n\n'
+    else
+      printf 'No public listening services were detected from `ss`/`netstat`.\n\n'
+    fi
+
+    printf '### Shutdown Blockers\n\n'
+    if [ -s "$RISK_ITEMS" ]; then
+      awk -F '\t' '$1 == "HIGH" {printf "- HIGH: %s - %s\n", $2, $3}' "$RISK_ITEMS" | head -n 10
+      awk -F '\t' '$1 == "MEDIUM" {printf "- MEDIUM: %s - %s\n", $2, $3}' "$RISK_ITEMS" | head -n 10
+    else
+      printf 'No obvious blockers detected.\n'
+    fi
+    printf '\n'
+
+    printf '### Suggested Next Actions\n\n'
+    printf '1. Confirm DNS and SSL ownership for every domain listed in the Apache/SSL sections.\n'
+    printf '2. Check whether recent access log traffic is real users, bots, or attack scans.\n'
+    printf '3. Back up PHP application files and any database referenced in config files.\n'
+    printf '4. Disable or migrate cron jobs that call `php`, `curl`, or `wget`.\n'
+    printf '5. Re-run `vm-audit` after changes and compare the new summary.\n'
+  } >"$summary"
+}
+
+insert_summary() {
+  tmp="$RAW_DIR/report-with-summary.md"
+  awk -v summary_file="$RAW_DIR/executive-summary.md" '
+    $0 == "__VM_AUDIT_SUMMARY__" {
+      while ((getline line < summary_file) > 0) print line
+      close(summary_file)
+      next
+    }
+    { print }
+  ' "$MD" >"$tmp"
+  mv "$tmp" "$MD"
+}
+
 write_risks() {
   {
     printf '\n## Risk Scoring\n\n'
@@ -479,6 +582,8 @@ main() {
   progress "Writing risk scoring and checklist..."
   write_risks
   write_checklist
+  write_summary
+  insert_summary
   write_html
   finalize_report_permissions
   say "Report written to $REPORT_ABS_DIR/report.md"
