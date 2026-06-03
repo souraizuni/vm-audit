@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 
-VERSION="0.1.2"
+VERSION="0.1.3"
 REPORT_DIR="${VM_AUDIT_REPORT_DIR:-vm-audit-report}"
 RAW_DIR="$REPORT_DIR/raw"
 MD="$REPORT_DIR/report.md"
@@ -301,20 +301,89 @@ audit_ssl() {
 
 audit_logs() {
   : >"$RAW_DIR/access-log-sample.txt"
+  : >"$RAW_DIR/access-log-files-7d.txt"
+  : >"$RAW_DIR/access-log-7d.txt"
   for dir in /var/log/nginx /var/log/apache2 /var/log/httpd; do
     [ -d "$dir" ] || continue
-    find "$dir" -type f \( -name '*access*.log' -o -name 'access_log' \) -print 2>/dev/null |
+    find "$dir" -type f \( -name '*access*.log*' -o -name 'access_log*' \) ! -name '*.gz' -mtime -7 -print 2>/dev/null >>"$RAW_DIR/access-log-files-7d.txt" || true
+    find "$dir" -type f \( -name '*access*.log' -o -name 'access_log' \) ! -name '*.gz' -print 2>/dev/null |
       while IFS= read -r f; do
         printf '\n==> %s <==\n' "$f"
         tail -n 100 "$f" 2>/dev/null
       done >>"$RAW_DIR/access-log-sample.txt"
   done
-  awk '$1 ~ /^[0-9a-fA-F:.]+$/ {count[$1]++} END {for (ip in count) print count[ip], ip}' "$RAW_DIR/access-log-sample.txt" | sort -rn | head -n 20 >"$RAW_DIR/top-ips.txt"
-  awk -F\" '/"[^"]+"/ {split($2,a," "); if (a[2] != "") count[a[2]]++} END {for (url in count) print count[url], url}' "$RAW_DIR/access-log-sample.txt" | sort -rn | head -n 20 >"$RAW_DIR/top-urls.txt"
-  [ -s "$RAW_DIR/top-ips.txt" ] && add_risk "MEDIUM" "Recent access log activity found" "Review top IPs and URLs before shutdown."
+
+  sort -u "$RAW_DIR/access-log-files-7d.txt" -o "$RAW_DIR/access-log-files-7d.txt"
+  while IFS= read -r f; do
+    [ -r "$f" ] || continue
+    printf '\n==> %s <==\n' "$f"
+    cat "$f" 2>/dev/null
+  done <"$RAW_DIR/access-log-files-7d.txt" >"$RAW_DIR/access-log-7d.txt"
+
+  awk '$1 ~ /^[0-9a-fA-F:.]+$/ {count[$1]++} END {for (ip in count) print count[ip], ip}' "$RAW_DIR/access-log-7d.txt" | sort -rn | head -n 30 >"$RAW_DIR/top-ips.txt"
+  awk -F\" '/"[^"]+"/ {split($2,a," "); if (a[2] != "") count[a[2]]++} END {for (url in count) print count[url], url}' "$RAW_DIR/access-log-7d.txt" | sort -rn | head -n 50 >"$RAW_DIR/top-urls.txt"
+
+  awk -F\" '
+    function bad(uri, ua) {
+      text = tolower(uri " " ua)
+      return text ~ /(\/\.env|\/\.git|\/\.aws|\/server-status|\/phpinfo|\/vendor\/phpunit|\/actuator|\/login\.cgi|\/shell\?|allow_url_include|auto_prepend_file|eval-stdin|\/cgi-bin\/|\/containers\/json|think\\app|pearcmd|wp-login|xmlrpc|\/owa\/|\/sdk\/weblanguage)/
+    }
+    /^[^#]/ && /"[^"]+"/ {
+      split($2, req, " ")
+      method = req[1]
+      uri = req[2]
+      status = $3
+      sub(/^[[:space:]]+/, "", status)
+      split(status, st, " ")
+      if (method != "" && uri != "" && st[1] ~ /^[0-9][0-9][0-9]$/ && !bad(uri, $6)) {
+        count[method " " uri " " st[1]]++
+      }
+    }
+    END {for (k in count) print count[k], k}
+  ' "$RAW_DIR/access-log-7d.txt" | sort -rn | head -n 100 >"$RAW_DIR/endpoint-stats-7d.txt"
+
+  awk -F\" '
+    function bad(uri, ua) {
+      text = tolower(uri " " ua)
+      return text ~ /(\/\.env|\/\.git|\/\.aws|\/server-status|\/phpinfo|\/vendor\/phpunit|\/actuator|\/login\.cgi|\/shell\?|allow_url_include|auto_prepend_file|eval-stdin|\/cgi-bin\/|\/containers\/json|think\\app|pearcmd|wp-login|xmlrpc|\/owa\/|\/sdk\/weblanguage)/
+    }
+    /^[^#]/ && /"[^"]+"/ {
+      split($2, req, " ")
+      method = req[1]
+      uri = req[2]
+      status = $3
+      sub(/^[[:space:]]+/, "", status)
+      split(status, st, " ")
+      path = uri
+      sub(/\?.*/, "", path)
+      if (method != "" && uri != "" && path ~ /\.php$/ && st[1] ~ /^[0-9][0-9][0-9]$/ && !bad(uri, $6)) {
+        path_count[method " " path " " st[1]]++
+        full_count[method " " uri " " st[1]]++
+        if (method != "GET" || uri ~ /(login|filter|price|order|pay|notify|callback|cookie|api)/) {
+          interactive[method " " uri " " st[1]]++
+        }
+      }
+    }
+    END {
+      for (k in path_count) print path_count[k], k > path_out
+      for (k in full_count) print full_count[k], k > full_out
+      for (k in interactive) print interactive[k], k > interactive_out
+    }
+  ' path_out="$RAW_DIR/php-endpoint-path-stats-7d.tmp" full_out="$RAW_DIR/php-endpoint-full-stats-7d.tmp" interactive_out="$RAW_DIR/php-interactive-endpoints-7d.tmp" "$RAW_DIR/access-log-7d.txt"
+  sort -rn "$RAW_DIR/php-endpoint-path-stats-7d.tmp" 2>/dev/null | head -n 100 >"$RAW_DIR/php-endpoint-path-stats-7d.txt"
+  sort -rn "$RAW_DIR/php-endpoint-full-stats-7d.tmp" 2>/dev/null | head -n 150 >"$RAW_DIR/php-endpoint-full-stats-7d.txt"
+  sort -rn "$RAW_DIR/php-interactive-endpoints-7d.tmp" 2>/dev/null | head -n 100 >"$RAW_DIR/php-interactive-endpoints-7d.txt"
+  rm -f "$RAW_DIR/php-endpoint-path-stats-7d.tmp" "$RAW_DIR/php-endpoint-full-stats-7d.tmp" "$RAW_DIR/php-interactive-endpoints-7d.tmp"
+
+  [ -s "$RAW_DIR/endpoint-stats-7d.txt" ] && add_risk "MEDIUM" "Recent 7-day access log activity found" "Review endpoint statistics, especially PHP pages and POST requests."
   append_section "Recent Access Logs" "$RAW_DIR/access-log-sample.txt"
+  append_section "Access Log Files From Last 7 Days" "$RAW_DIR/access-log-files-7d.txt"
   append_section "Top IPs" "$RAW_DIR/top-ips.txt"
   append_section "Top URLs" "$RAW_DIR/top-urls.txt"
+  append_section "Endpoint Statistics Last 7 Days" "$RAW_DIR/endpoint-stats-7d.txt"
+  append_section "PHP Endpoint Statistics Last 7 Days" "$RAW_DIR/php-endpoint-path-stats-7d.txt"
+  append_section "PHP Endpoint Variants Last 7 Days" "$RAW_DIR/php-endpoint-full-stats-7d.txt"
+  append_section "PHP Interactive Endpoints Last 7 Days" "$RAW_DIR/php-interactive-endpoints-7d.txt"
 }
 
 audit_cron() {
@@ -397,6 +466,8 @@ write_summary() {
   public_count="$(count_lines "$RAW_DIR/public-ports.txt")"
   php_sites="$(extract_value "Website-like directories" "$RAW_DIR/php-sites.txt")"
   php_files="$(extract_value "PHP files" "$RAW_DIR/php-sites.txt")"
+  php_endpoint_count="$(count_lines "$RAW_DIR/php-endpoint-path-stats-7d.txt")"
+  php_interactive_count="$(count_lines "$RAW_DIR/php-interactive-endpoints-7d.txt")"
   docker_running="0"
   if [ -s "$RAW_DIR/docker-ps.txt" ]; then
     docker_running="$(awk 'NR > 3 && $1 != "" {c++} END {print c+0}' "$RAW_DIR/docker-ps.txt")"
@@ -424,6 +495,8 @@ write_summary() {
     printf '| Docker running containers | %s |\n' "$docker_running"
     printf '| PHP website-like directories | %s |\n' "${php_sites:-0}"
     printf '| PHP files | %s |\n' "${php_files:-0}"
+    printf '| PHP endpoints active in last 7 days | %s |\n' "$php_endpoint_count"
+    printf '| PHP interactive endpoints in last 7 days | %s |\n' "$php_interactive_count"
     printf '| High risks | %s |\n' "$high_count"
     printf '| Medium risks | %s |\n\n' "$medium_count"
 
@@ -444,6 +517,24 @@ write_summary() {
       printf 'No obvious blockers detected.\n'
     fi
     printf '\n'
+
+    printf '### Active PHP Endpoints From Last 7 Days\n\n'
+    if [ -s "$RAW_DIR/php-endpoint-path-stats-7d.txt" ]; then
+      printf '```text\n'
+      head -n 20 "$RAW_DIR/php-endpoint-path-stats-7d.txt"
+      printf '```\n\n'
+    else
+      printf 'No PHP endpoint traffic was detected in access logs modified within the last 7 days.\n\n'
+    fi
+
+    printf '### Interactive PHP Endpoints From Last 7 Days\n\n'
+    if [ -s "$RAW_DIR/php-interactive-endpoints-7d.txt" ]; then
+      printf '```text\n'
+      head -n 20 "$RAW_DIR/php-interactive-endpoints-7d.txt"
+      printf '```\n\n'
+    else
+      printf 'No PHP POST/login/filter/payment-like endpoint traffic was detected in access logs modified within the last 7 days.\n\n'
+    fi
 
     printf '### Suggested Next Actions\n\n'
     printf '1. Confirm DNS and SSL ownership for every domain listed in the Apache/SSL sections.\n'

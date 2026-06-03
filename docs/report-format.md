@@ -22,6 +22,8 @@ The Markdown report is optimized for GitHub. It includes:
 - Apache and Nginx summaries
 - SSL certificate summary
 - Access log samples and top counters
+- 7-day endpoint statistics
+- 7-day PHP endpoint and interactive PHP endpoint statistics
 - Cron and systemd inventory
 - Firewall output
 - Special service detection

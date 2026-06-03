@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3 - 2026-06-03
+
+- Analyze access logs modified within the last 7 days.
+- Add endpoint statistics, PHP endpoint statistics, and PHP interactive endpoint summaries.
+- Filter common attack/scanner paths from endpoint usage statistics.
+
 ## 0.1.2 - 2026-06-03
 
 - Add an Executive Summary at the top of reports.

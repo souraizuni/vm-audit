@@ -12,7 +12,7 @@ sudo vm-audit
 During the audit, progress is printed to the terminal:
 
 ```text
-vm-audit 0.1.2 starting read-only audit.
+vm-audit 0.1.3 starting read-only audit.
 Report directory: /home/admin/vm-audit-report
 [1/14] Collecting system information...
 [1/14] Collecting system information complete.
@@ -33,6 +33,8 @@ The top of `report.md` and `report.html` contains an Executive Summary with:
 - shutdown verdict
 - key counts
 - public entry points
+- active PHP endpoints from the last 7 days
+- interactive PHP endpoints from the last 7 days
 - shutdown blockers
 - suggested next actions
 
@@ -88,7 +90,9 @@ vm-audit --version
 - Apache virtual host inventory
 - Nginx config summary for `server_name`, `listen`, `root`, `proxy_pass`, and `fastcgi_pass`
 - Certbot certificate summary
-- Recent Nginx/Apache access log samples with top IP and URL summaries
+- Recent Nginx/Apache access log samples with 7-day endpoint statistics
+- PHP endpoint statistics from access logs modified within the last 7 days
+- PHP interactive endpoint highlighting for POST, login, filter, price, order, payment, notify, callback, cookie, and API-like traffic
 - Cron inventory with `php`, `curl`, and `wget` highlighting
 - Systemd running and enabled service inventory
 - Firewall readout for UFW, iptables, and nftables
